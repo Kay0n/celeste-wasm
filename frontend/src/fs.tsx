@@ -2,11 +2,11 @@ import { Button, Icon } from "./ui/Button";
 
 import tar, { Headers as TarHeaders, Pack } from "tar-stream";
 import {
-	fromWeb as streamFromWeb,
 	toWeb as streamToWeb,
 	/* @ts-expect-error */
 } from "streamx-webstream";
 import XXH64Worker from "./xxh64.worker?worker";
+import ExtractWorker from "./extract.worker?worker";
 
 import iconFolder from "@ktibow/iconset-material-symbols/folder";
 import iconDraft from "@ktibow/iconset-material-symbols/draft";
@@ -48,6 +48,12 @@ export const PICKERS_UNAVAILABLE: boolean | "security" =
 			: false;
 
 export const rootFolder = await navigator.storage.getDirectory();
+
+// Browsers without showSaveFilePicker (Firefox) get archives built here and
+// downloaded through a blob URL. It can't be deleted until the download has
+// finished reading it, so clean it up on the next page load instead.
+const ARCHIVE_TEMP = ".archive-download.tar";
+await rootFolder.removeEntry(ARCHIVE_TEMP).catch(() => {});
 
 export const TAR_TYPES = [
 	{
@@ -312,6 +318,7 @@ export function createTar(
 
 	async function pack(pathPrefix: string, folder: FileSystemDirectoryHandle) {
 		for await (const [name, entry] of folder) {
+			if (name === ARCHIVE_TEMP) continue;
 			if (callback) callback(entry.kind, name);
 
 			if (entry.kind == "file") {
@@ -342,65 +349,64 @@ export function createTar(
 	return streamToWeb(archive);
 }
 
+// Bytes of the archive allowed to sit unwritten in the extract worker. Lets
+// the download run ahead of disk writes without buffering the whole thing.
+const EXTRACT_MAX_IN_FLIGHT = 32 * 1024 * 1024;
+
 export async function extractTar(
 	stream: ReadableStream<Uint8Array>,
 	folder: FileSystemDirectoryHandle,
 	callback?: (type: "directory" | "file", name: string) => void
 ) {
-	const tarInput = streamFromWeb(stream);
-	const archive = tar.extract();
+	const worker = new ExtractWorker({ name: "extract-tar" });
+	const reader = stream.getReader();
+	let inFlight = 0;
+	let wake: (() => void) | null = null;
 
-	archive.on("entry", async (header, stream, next) => {
-		const body: ReadableStream<Uint8Array> = streamToWeb(stream);
+	try {
+		await new Promise<void>((res, rej) => {
+			worker.onmessage = ({ data }) => {
+				if (data.ack) {
+					inFlight -= data.ack;
+					wake?.();
+					wake = null;
+				} else if (data.entry) {
+					callback?.(data.entry.type, data.entry.name);
+				} else if (data.done) {
+					res();
+				} else if (data.error) {
+					rej(new Error(`failed to extract archive: ${data.error}`));
+				}
+			};
+			worker.onerror = (e) =>
+				rej(new Error(`extract worker failed: ${e.message}`));
 
-		async function consume() {
-			const reader = body.getReader();
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done || !value) break;
-			}
-		}
-
-		const path = header.name.split("/");
-		if (path[path.length - 1] === "") path.pop();
-		if (path[0] === folder.name) path.shift();
-		if (path.length === 0) {
-			await consume();
-			next();
-			return;
-		}
-
-		let handle = folder;
-		for (const name of path.splice(0, path.length - 1)) {
-			handle = await handle.getDirectoryHandle(name, { create: true });
-		}
-
-		if (header.type === "directory") {
-			await handle.getDirectoryHandle(path[0], { create: true });
-			await consume();
-
-			if (callback) callback("directory", path[0]);
-		} else if (header.type === "file") {
-			const file = await handle.getFileHandle(path[0], { create: true });
-			const writable = await file.createWritable();
-			await body.pipeTo(writable);
-
-			if (callback) callback("file", path[0]);
-		} else {
-			await consume();
-		}
-
-		next();
-	});
-
-	const promise = new Promise<void>((res, rej) => {
-		archive.on("finish", () => res());
-		archive.on("error", (err) => rej(err));
-	});
-
-	tarInput.pipe(archive);
-	await promise;
+			worker.postMessage({ folder });
+			(async () => {
+				while (true) {
+					while (inFlight > EXTRACT_MAX_IN_FLIGHT)
+						await new Promise<void>((r) => (wake = r));
+					const { done, value } = await reader.read();
+					if (done) break;
+					// a view into a bigger buffer can't be transferred without
+					// detaching the rest of it
+					const chunk =
+						value.byteOffset === 0 &&
+						value.byteLength === value.buffer.byteLength
+							? value
+							: value.slice();
+					inFlight += chunk.byteLength;
+					worker.postMessage({ chunk }, [chunk.buffer]);
+				}
+				worker.postMessage({ end: true });
+			})().catch(rej);
+		});
+	} catch (err) {
+		reader.cancel(err).catch(() => {});
+		throw err;
+	} finally {
+		worker.terminate();
+	}
 }
 
 export async function recursiveGetDirectory(
@@ -553,11 +559,13 @@ export const OpfsExplorer: Component<
 	};
 	const downloadArchive = async () => {
 		const dirName = this.components.at(-1) || "celeste-wasm";
-		const file = await showSaveFilePicker({
-			excludeAcceptAllOption: true,
-			suggestedName: dirName + ".tar",
-			types: TAR_TYPES,
-		});
+		const file = PICKERS_UNAVAILABLE
+			? await rootFolder.getFileHandle(ARCHIVE_TEMP, { create: true })
+			: await showSaveFilePicker({
+					excludeAcceptAllOption: true,
+					suggestedName: dirName + ".tar",
+					types: TAR_TYPES,
+				});
 
 		this.downloading = true;
 
@@ -569,6 +577,14 @@ export const OpfsExplorer: Component<
 
 		const fileStream = await file.createWritable();
 		await tar.pipeTo(fileStream);
+
+		if (PICKERS_UNAVAILABLE) {
+			const url = URL.createObjectURL(await file.getFile());
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = dirName + ".tar";
+			a.click();
+		}
 
 		this.downloading = false;
 	};
@@ -587,10 +603,7 @@ export const OpfsExplorer: Component<
 	};
 
 	const uploadDisabled = use(this.uploading, (x) => x || !!PICKERS_UNAVAILABLE);
-	const downloadDisabled = use(
-		this.downloading,
-		(x) => x || !!PICKERS_UNAVAILABLE
-	);
+	const downloadDisabled = use(this.downloading);
 
 	return (
 		<div>

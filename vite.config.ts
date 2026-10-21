@@ -39,6 +39,9 @@ export default defineConfig({
 		// macOS reserves port 5000 for AirPlay Receiver (???)
 		port: os.type() === "Darwin" ? 4999 : 5000,
 	},
+	preview: {
+		allowedHosts: ["celeste.refract.online"],
+	},
 	build: {
 		target: "es2022",
 		cssMinify: "lightningcss",

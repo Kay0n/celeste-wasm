@@ -191,6 +191,10 @@ export class EpxTcpWs extends EventTarget {
 					break;
 				}
 			}
+			// Servers often send a reply and hang up at once (e.g. CelesteNet's
+			// "403 Access Denied"). .NET refuses to read once the socket reports
+			// closed, so give it time to consume the last messages first.
+			if (!errored) await new Promise((r) => setTimeout(r, 500));
 			this.readyState = WebSocketFields.CLOSED;
 			onclose(errored ? 1011 : 1000, errored ? "epoxy.ts errored" : "normal");
 		})();

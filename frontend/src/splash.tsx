@@ -118,17 +118,48 @@ const validateDirectoryForBadBrowsers = async (
 	});
 };
 
-const initialHasContent = await hasContent();
-let initialIsPatched = false;
-try {
-	await rootFolder.getFileHandle("CustomCeleste.dll", { create: false });
-	initialIsPatched = true;
-} catch {}
+// Self-hosting: if the server has a game archive at one of these paths (a tar
+// exported from the filesystem explorer, or a plain tar of Content/ and
+// Celeste.exe, optionally gzipped), it is downloaded and extracted
+// automatically on first visit.
+const SERVER_ARCHIVE_CANDIDATES: string[] = import.meta.env.VITE_SERVER_ARCHIVE
+	? [import.meta.env.VITE_SERVER_ARCHIVE]
+	: ["./celeste.tar.gz", "./celeste.tar"];
+const SERVER_EXTRACT_MARKER = ".ServerExtractInProgress";
+
+const fileExists = async (name: string) => {
+	try {
+		await rootFolder.getFileHandle(name, { create: false });
+		return true;
+	} catch {
+		return false;
+	}
+};
+
+// an interrupted extraction may have already written .ContentExists
+const serverExtractInterrupted = await fileExists(SERVER_EXTRACT_MARKER);
+const initialHasContent = !serverExtractInterrupted && (await hasContent());
+const initialIsPatched = await fileExists("CustomCeleste.dll");
+
+let SERVER_ARCHIVE = "";
+if (!initialHasContent) {
+	for (const candidate of SERVER_ARCHIVE_CANDIDATES) {
+		try {
+			const res = await fetch(candidate, { method: "HEAD" });
+			// dev servers answer unknown paths with index.html
+			if (res.ok && !res.headers.get("content-type")?.includes("text/html")) {
+				SERVER_ARCHIVE = candidate;
+				break;
+			}
+		} catch {}
+	}
+}
+const serverArchiveAvailable = SERVER_ARCHIVE !== "";
 
 const Intro: Component<
 	{
 		"on:next": (
-			type: "copy" | "extract" | "patch" | "download" | "done"
+			type: "copy" | "extract" | "server" | "patch" | "download" | "done"
 		) => void;
 	},
 	{
@@ -145,7 +176,9 @@ const Intro: Component<
 		}
 	`;
 
-	const next = (type: "copy" | "extract" | "patch" | "download" | "done") => {
+	const next = (
+		type: "copy" | "extract" | "server" | "patch" | "download" | "done"
+	) => {
 		this.disabled = true;
 		this["on:next"](type);
 	};
@@ -155,6 +188,8 @@ const Intro: Component<
 		} else {
 			next("patch");
 		}
+	} else if (serverArchiveAvailable) {
+		next("server");
 	}
 
 	return (
@@ -357,6 +392,122 @@ const Extract: Component<
 				<Icon icon={iconFolderZip} />
 				Select {NAME} archive
 			</Button>
+			{$if(use(this.status), <div class="error">{use(this.status)}</div>)}
+		</div>
+	);
+};
+
+const ServerExtract: Component<
+	{
+		"on:done": (patched: boolean) => void;
+	},
+	{
+		status: string;
+		progress: string;
+		percent: number;
+	}
+> = function () {
+	this.percent = 0;
+	this.progress = "Starting download...";
+
+	const mb = (x: number) => (x / 1024 / 1024).toFixed(0);
+	const STORAGE_HINT =
+		"Private, Incognito and Guest windows only get a small amount of storage, so open this site in a normal window. Otherwise, free up some disk space and reload.";
+
+	// Size of the archive once unpacked, or 0 if the server can't tell us. A
+	// gzip file ends with its uncompressed size (mod 4 GiB), so only those 4
+	// bytes are fetched.
+	const unpackedSize = async () => {
+		try {
+			const head = await fetch(SERVER_ARCHIVE, { method: "HEAD" });
+			if (head.headers.get("content-encoding")) return 0;
+			const length = +(head.headers.get("content-length") || 0);
+			if (!SERVER_ARCHIVE.endsWith(".gz") || length < 4) return length;
+
+			// an explicit start, since vite preview mishandles "bytes=-4"
+			const abort = new AbortController();
+			const res = await fetch(SERVER_ARCHIVE, {
+				headers: { Range: `bytes=${length - 4}-${length - 1}` },
+				signal: abort.signal,
+			});
+			if (res.status !== 206) {
+				// the server ignored the range and is sending the whole file
+				abort.abort();
+				return 0;
+			}
+			const tail = new DataView(await res.arrayBuffer());
+			return tail.byteLength === 4 ? tail.getUint32(0, true) : 0;
+		} catch {
+			return 0;
+		}
+	};
+
+	const run = async () => {
+		// fail before downloading anything if the game can't fit
+		const needed = await unpackedSize();
+		const { quota } = await navigator.storage.estimate();
+		if (needed && quota !== undefined && quota < needed) {
+			this.status = `The game needs about ${mb(needed)} MB of browser storage, but this browser only allows ${mb(quota)} MB. ${STORAGE_HINT}`;
+			return;
+		}
+
+		await rootFolder.getFileHandle(SERVER_EXTRACT_MARKER, { create: true });
+
+		const res = await fetch(SERVER_ARCHIVE);
+		if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+		// with Content-Encoding the body is already inflated, so Content-Length
+		// (the compressed size) can't be compared against bytes read
+		const total = res.headers.get("content-encoding")
+			? 0
+			: +(res.headers.get("content-length") || 0);
+
+		let loaded = 0;
+		let stream: ReadableStream<Uint8Array> = res.body.pipeThrough(
+			new TransformStream({
+				transform: (chunk, controller) => {
+					loaded += chunk.byteLength;
+					if (total) this.percent = Math.min((loaded / total) * 100, 100);
+					this.progress = total
+						? `${mb(loaded)} / ${mb(total)} MB`
+						: `${mb(loaded)} MB`;
+					controller.enqueue(chunk);
+				},
+			})
+		);
+		// if the server sent it with Content-Encoding the browser already inflated it
+		if (
+			SERVER_ARCHIVE.endsWith(".gz") &&
+			!res.headers.get("content-encoding")?.includes("gzip")
+		)
+			stream = stream.pipeThrough(new DecompressionStream("gzip"));
+
+		await extractTar(stream, rootFolder, (type, name) =>
+			console.debug(`untarred ${type} ${name}`)
+		);
+
+		// a plain tar of the game folder won't have the marker
+		await rootFolder.getFileHandle(".ContentExists", { create: true });
+		await rootFolder.removeEntry(SERVER_EXTRACT_MARKER);
+
+		event("assets-provided", { option: "server" });
+		this["on:done"](await fileExists("CustomCeleste.dll"));
+	};
+	run().catch((err) => {
+		console.error(err);
+		// the quota check above can't see other sites' usage or a nearly full disk
+		this.status = String(err).includes("QuotaExceededError")
+			? `Ran out of browser storage while unpacking the game. ${STORAGE_HINT}`
+			: `Failed to download game archive: ${err}. Reload to retry.`;
+	});
+
+	return (
+		<div class="step">
+			<p>
+				Downloading and extracting game files from this server. This only
+				happens once per browser.
+			</p>
+			<Progress percent={use(this.percent)} />
+			<p>{use(this.progress)}</p>
 			{$if(use(this.status), <div class="error">{use(this.status)}</div>)}
 		</div>
 	);
@@ -839,7 +990,7 @@ export const Splash: Component<
 		start: () => Promise<void>;
 	},
 	{
-		next: "intro" | "copy" | "extract" | "download" | "patch";
+		next: "intro" | "copy" | "extract" | "server" | "download" | "patch";
 		settingsOpen: boolean;
 	}
 > = function () {
@@ -955,6 +1106,14 @@ export const Splash: Component<
 							);
 						} else if (x === "copy") {
 							return <Copy on:done={() => (this.next = "patch")} />;
+						} else if (x === "server") {
+							return (
+								<ServerExtract
+									on:done={(patched) =>
+										patched ? this["on:next"](true) : (this.next = "patch")
+									}
+								/>
+							);
 						} else if (x === "extract") {
 							return <Extract on:done={() => this["on:next"](true)} />;
 						} else if (x === "download") {

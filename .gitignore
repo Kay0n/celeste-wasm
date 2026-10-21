@@ -15,3 +15,9 @@ obj
 
 analytics_tag
 .DS_Store
+
+# self-hosting
+/game
+.devenv*
+devenv.lock
+.direnv

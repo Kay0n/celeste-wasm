@@ -93,6 +93,44 @@ useChange([gameState.playing, gameState.initting], () => {
 	} catch (err) {}
 });
 
+// Ctrl is a common game binding, so stop Ctrl+key from triggering browser
+// shortcuts (save page, bookmark, ...) while playing. The game still gets the
+// event; only the browser's default action is cancelled.
+window.addEventListener(
+	"keydown",
+	(e) => {
+		if (!gameState.playing || !(e.ctrlKey || e.metaKey)) return;
+		const target = e.target as HTMLElement | null;
+		if (target?.closest("input, textarea, [contenteditable]")) return;
+		e.preventDefault();
+	},
+	{ capture: true }
+);
+// Some shortcuts (Ctrl+W/T/N in Firefox, or outside fullscreen in Chrome) are
+// reserved and can't be cancelled, so at least confirm before closing the tab.
+window.addEventListener("beforeunload", (e) => {
+	if (!gameState.playing) return;
+	e.preventDefault();
+	// older browsers only prompt when returnValue is set
+	e.returnValue = "";
+	// the prompt kicks the page out of fullscreen
+	interruptedFullscreen = document.fullscreenElement;
+});
+// Pages can't re-enter fullscreen without a user gesture, so do it on the
+// first input after "Stay on page".
+let interruptedFullscreen: Element | null = null;
+const restoreFullscreen = () => {
+	const el = interruptedFullscreen;
+	interruptedFullscreen = null;
+	if (el && !document.fullscreenElement && gameState.playing)
+		el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+};
+window.addEventListener("keydown", (e) => {
+	// Escape doesn't count as a user gesture for fullscreen
+	if (e.key !== "Escape") restoreFullscreen();
+});
+window.addEventListener("pointerdown", restoreFullscreen);
+
 let nativefetch = window.fetch;
 let wasm: any;
 let dotnet: DotnetHostBuilder;
