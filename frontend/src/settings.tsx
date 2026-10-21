@@ -1,13 +1,18 @@
 import { Switch } from "./ui/Switch";
 import { store } from "./store";
 import { TextField } from "./ui/TextField";
+import { Button, Icon } from "./ui/Button";
 import { analyticsEnabled, event } from "./analytics";
+import { downloadArchive } from "./fs";
+
+import iconDownload from "@ktibow/iconset-material-symbols/download";
 
 export const Settings: Component<
 	{},
 	{
 		darkMode: boolean;
 		showLogs: boolean;
+		downloading: boolean;
 	}
 > = function () {
 	this.css = `
@@ -34,6 +39,18 @@ export const Settings: Component<
 	this.darkMode = store.theme === "dark";
 
 	this.showLogs = store.logs > 0;
+	this.downloading = false;
+
+	const download = async () => {
+		this.downloading = true;
+		try {
+			await downloadArchive();
+		} catch (err) {
+			console.error("Failed to create archive:", err);
+		} finally {
+			this.downloading = false;
+		}
+	};
 
 	return (
 		<div>
@@ -62,11 +79,26 @@ export const Settings: Component<
 				</div>
 				<AccentPicker />
 			</div>
+			<div class="setting">
+				<span>Game Files</span>
+				<Button
+					type="normal"
+					icon="left"
+					disabled={use(this.downloading)}
+					on:click={download}
+					title="Download all game files and saves as a .tar.gz"
+				>
+					<Icon icon={iconDownload} />
+					<span>
+						{use(this.downloading, (x) => (x ? "Archiving..." : "Download"))}
+					</span>
+				</Button>
+			</div>
 			{/* @ts-expect-error fragment */}
 			{analyticsEnabled ? (<>
 				<div>
 					This instance of Webleste has analytics for figuring out how many people are affected by r58playz's random regressions.
-					We send an event on page load, when you finish providing assets (with what option you chose), when you finish patching (with whether you chose to install Everest), when you click the play button, and when you turn this off (but not after).
+					We send an event on page load, when the game finishes downloading, when you finish patching (with whether you chose to install Everest), when you click the play button, and when you turn this off (but not after).
 				</div>
 				<Switch title="Enable Analytics" bind:on={use(store.analytics)} disabled={false} on:change={() => event("analytics-toggle", { enabled: store.analytics })} />
 			</>) : null}

@@ -6,11 +6,4 @@
 		<LangVersion>14</LangVersion>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 	</PropertyGroup>
-
-	<ItemGroup>
-		<ProjectReference Include="../SteamKit2.WASM/SteamKit/SteamKit2/SteamKit2/SteamKit2.csproj"/>
-		<ProjectReference Include="../SteamKit2.WASM/DepotDownloader/DepotDownloader.csproj"/>
-
-		<PackageReference Include="QRCoder" Version="1.6.0" />
-	</ItemGroup>
 </Project>

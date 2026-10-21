@@ -9,12 +9,8 @@ statics:
 	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/SDL3.a -O statics/SDL3.a
 	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/liba.o -O statics/liba.o
 	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/hot_reload_detour.o -O statics/hot_reload_detour.o
-	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/libcrypto.a -O statics/libcrypto.a
 	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/dotnet.zip -O statics/dotnet.zip
 	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/emsdk.zip -O statics/emsdk.zip
-
-SteamKit2.WASM:
-	git clone https://github.com/MercuryWorkshop/SteamKit2.WASM --recursive
 
 FNA:
 	git clone https://github.com/FNA-XNA/FNA --recursive -b 25.11
@@ -30,9 +26,9 @@ MonoMod:
 dotnetclean:
 	rm -rvf {loader,patcher,corefier,Steamworks}/{bin,obj} frontend/public/_framework || true
 clean: dotnetclean
-	rm -rvf statics MonoMod NLua FNA SteamKit2.WASM || true
+	rm -rvf statics MonoMod NLua FNA || true
 
-deps: statics FNA MonoMod NLua SteamKit2.WASM
+deps: statics FNA MonoMod NLua
 
 build: deps
 	pnpm i

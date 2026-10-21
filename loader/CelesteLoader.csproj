@@ -133,10 +133,6 @@
 		<!-- Everest -->
 		<NativeFileReference Include="lua54.a" />
 		<NativeFileReference Include="fmod_SDL.c" />
-
-		<!-- Steam -->
-		<NativeFileReference Include="..\statics\libcrypto.a" />
-		<NativeFileReference Include="..\SteamKit2.WASM\SteamKit\SteamKit2\SteamKit2\NativeCrypto.c" />
 	</ItemGroup>
 
 	<ItemGroup>

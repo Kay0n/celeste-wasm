@@ -184,12 +184,3 @@ export const Icon: Component<{ icon: IconifyIcon; class?: string }, {}> =
 			></svg>
 		);
 	};
-
-export const Link: Component<{ href: string }, { children: any[] }> =
-	function () {
-		return (
-			<a href={this.href} class="component-link" target="_blank">
-				{this.children}
-			</a>
-		);
-	};

@@ -158,4 +158,4 @@ export const GameView: Component<
 	);
 };
 
-export { gameState, play, loadedLibcurlPromise } from "./dotnet";
+export { gameState, play } from "./dotnet";

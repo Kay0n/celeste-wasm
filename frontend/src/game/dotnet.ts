@@ -3,7 +3,6 @@ import { calculateXXH64, recursiveGetDirectory, rootFolder } from "../fs";
 import { SteamJS } from "../achievements";
 import { JsSplash } from "./loading";
 import { epoxyFetch, EpxTcpWs, EpxWs, getWispUrl } from "../epoxy";
-import { steamState } from "../steam";
 import { event } from "../analytics";
 
 export type Log = { color: string; log: string };
@@ -11,13 +10,11 @@ export const gameState: Stateful<{
 	ready: boolean;
 	initting: boolean;
 	playing: boolean;
-	hasEverest: boolean;
 	memory: number;
 }> = $state({
 	ready: false,
 	initting: false,
 	playing: false,
-	hasEverest: false,
 	memory: -1,
 });
 (globalThis as any).gameState = gameState;
@@ -145,60 +142,6 @@ export function getDlls(): (readonly [string, string])[] {
 	return resources.map((x) => [x.name, x.virtualPath] as const);
 }
 
-// the funny custom rsa
-// https://github.com/MercuryWorkshop/wispcraft/blob/main/src/connection/crypto.ts
-function encryptRSA(data: Uint8Array, n: bigint, e: bigint): Uint8Array {
-	const modExp = (base: bigint, exp: bigint, mod: bigint) => {
-		let result = 1n;
-		base = base % mod;
-		while (exp > 0n) {
-			if (exp % 2n === 1n) {
-				result = (result * base) % mod;
-			}
-			exp = exp >> 1n;
-			base = (base * base) % mod;
-		}
-		return result;
-	};
-	// thank you jippity
-	const pkcs1v15Pad = (messageBytes: Uint8Array, n: bigint) => {
-		const messageLength = messageBytes.length;
-		const nBytes = Math.ceil(n.toString(16).length / 2);
-
-		if (messageLength > nBytes - 11) {
-			throw new Error("Message too long for RSA encryption");
-		}
-
-		const paddingLength = nBytes - messageLength - 3;
-		const padding = Array(paddingLength).fill(0xff);
-
-		return BigInt(
-			"0x" +
-				[
-					"00",
-					"02",
-					...padding.map((byte) => byte.toString(16).padStart(2, "0")),
-					"00",
-					...Array.from(messageBytes).map((byte: any) =>
-						byte.toString(16).padStart(2, "0")
-					),
-				].join("")
-		);
-	};
-	const paddedMessage = pkcs1v15Pad(data, n);
-	let int = modExp(paddedMessage, e, n);
-
-	let hex = int.toString(16);
-	if (hex.length % 2) {
-		hex = "0" + hex;
-	}
-
-	// ????
-	return new Uint8Array(
-		Array.from(hex.match(/.{2}/g) || []).map((byte) => parseInt(byte, 16))
-	);
-}
-
 export async function downloadEverest() {
 	const branch = "stable";
 	const res = await epoxyFetch(
@@ -226,15 +169,6 @@ export async function downloadEverest() {
 	console.log("Successfully downloaded Everest");
 }
 
-let downloadsFolder: FileSystemDirectoryHandle | null = null;
-
-export async function pickDownloadsFolder() {
-	let d = await showDirectoryPicker();
-	downloadsFolder = d;
-}
-
-let libcurlresolver: any;
-export const loadedLibcurlPromise = new Promise((r) => (libcurlresolver = r));
 export async function preInit() {
 	if (gameState.ready) return;
 
@@ -336,70 +270,25 @@ export async function preInit() {
 		},
 	});
 
-	let dl = document.createElement("a");
-	dl.style.display = "none";
-	document.body.appendChild(dl);
-
 	window.fetch = async (...args) => {
-		// don't try native for steam depots
-		if (typeof args[0] !== "string" || !args[0].includes("/depot/")) {
-			try {
-				return await nativefetch(...args);
-			} catch (e) {
-				bypassLog(
-					"native fetch failed for",
-					args,
-					", fetching with epoxy instead"
-				);
-			}
-		} else if (downloadsFolder != null) {
-			let last = args[0].split("/").pop()!;
-			try {
-				let file = await downloadsFolder.getFileHandle(last, { create: false });
-				let h = await file.getFile();
-				console.log("got file cached", last);
-				return new Response(h.stream());
-			} catch {}
-			dl.download = "cross origin lol";
-			dl.href = args[0];
-			dl.click();
-
-			while (true) {
-				try {
-					let file = await downloadsFolder.getFileHandle(last, {
-						create: false,
-					});
-					let h = await file.getFile();
-					console.log("got file", last);
-					return new Response(h.stream());
-				} catch {}
-				await new Promise((r) => setTimeout(r, 100));
-			}
+		try {
+			return await nativefetch(...args);
+		} catch (e) {
+			bypassLog(
+				"native fetch failed for",
+				args,
+				", fetching with epoxy instead"
+			);
 		}
 
 		// @ts-expect-error
 		return await epoxyFetch(...args);
 	};
-	libcurlresolver();
 
 	const config = runtime.getConfig();
 	exports = await runtime.getAssemblyExports(config.mainAssemblyName!);
-	exports.SteamJS = (
-		await runtime.getAssemblyExports("Steamworks.NET.dll")
-	).Steamworks.SteamJS;
 
-	// TODO: replace with native openssl
 	runtime.setModuleImports("interop.js", {
-		encryptrsa: (
-			publicKeyModulusHex: string,
-			publicKeyExponentHex: string,
-			data: Uint8Array
-		) => {
-			let modulus = BigInt("0x" + publicKeyModulusHex);
-			let exponent = BigInt("0x" + publicKeyExponentHex);
-			let encrypted = encryptRSA(data, modulus, exponent);
-			return new Uint8Array(encrypted);
-		},
 		XXHash64_Fast: async (path: string) => {
 			if (!path.startsWith("/libsdl/"))
 				throw new Error("can't hash things not in opfs");
@@ -441,19 +330,6 @@ export async function preInit() {
 	await exports.CelesteLoader.PreInit();
 	console.debug("dotnet initialized");
 
-	await exports.SteamJS.Init();
-	if (await exports.SteamJS.InitSteamSaved()) {
-		console.log("Logged in via saved login");
-		steamState.login = 2;
-	}
-
-	try {
-		await recursiveGetDirectory(rootFolder, ["Celeste", "Everest"]);
-		gameState.hasEverest = true;
-	} catch {
-		gameState.hasEverest = false;
-	}
-
 	gameState.ready = true;
 }
 
@@ -479,26 +355,6 @@ export async function PatchCeleste(installEverest: boolean) {
 	if (!(await exports.Patcher.PatchCeleste(installEverest))) {
 		throw "failed to patch celeste";
 	}
-	gameState.hasEverest = true;
-}
-
-export async function initSteam(
-	username: string | null,
-	password: string | null,
-	qr: boolean
-): Promise<boolean> {
-	return await exports.SteamJS.InitSteam(username, password, qr);
-}
-
-export async function DownloadApp() {
-	return await exports.SteamJS.DownloadApp();
-}
-
-export async function DownloadSteamCloud() {
-	return await exports.SteamJS.DownloadSteamCloud();
-}
-export async function UploadSteamCloud() {
-	return await exports.SteamJS.UploadSteamCloud();
 }
 
 const SEAMLESSCOUNT = 5;

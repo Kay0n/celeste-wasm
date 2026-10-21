@@ -62,10 +62,8 @@ public static partial class CelesteBootstrap
 
             TryCreateDirectory("/libsdl/Celeste/Mods");
             TryCreateDirectory("/libsdl/Celeste/Saves");
-            TryCreateDirectory("/remote/");
             File.CreateSymbolicLink("/Content", "/libsdl/Content");
             File.CreateSymbolicLink("/Saves", "/libsdl/Celeste/Saves");
-            File.CreateSymbolicLink("/remote/%GameInstall%Saves", "/libsdl/Celeste/Saves");
             MountDlls(root, rawDlls);
         }
         catch (Exception err)

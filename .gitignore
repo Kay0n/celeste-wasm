@@ -6,7 +6,6 @@ obj
 /FNA
 /MonoMod
 /NLua
-/SteamKit2.WASM
 
 /node_modules
 /frontend/public/_framework
