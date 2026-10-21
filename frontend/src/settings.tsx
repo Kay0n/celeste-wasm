@@ -2,12 +2,13 @@ import { Switch } from "./ui/Switch";
 import { store } from "./store";
 import { TextField } from "./ui/TextField";
 import { Button, Icon } from "./ui/Button";
-import { downloadSaves, uploadSaves } from "./fs";
+import { clearStorage, downloadSaves, uploadSaves } from "./fs";
 import { loadAchievements } from "./achievements";
 import { gameState } from "./game";
 
 import iconDownload from "@ktibow/iconset-material-symbols/download";
 import iconUpload from "@ktibow/iconset-material-symbols/upload";
+import iconDelete from "@ktibow/iconset-material-symbols/delete";
 
 export const Settings: Component<
 	{},
@@ -15,7 +16,7 @@ export const Settings: Component<
 		darkMode: boolean;
 		showLogs: boolean;
 		busy: boolean;
-		uploadDisabled: boolean;
+		writeDisabled: boolean;
 		status: string;
 		input: HTMLInputElement;
 	}
@@ -57,7 +58,7 @@ export const Settings: Component<
 	this.status = "";
 	// the running game keeps its save data in memory and would overwrite an upload
 	useChange([this.busy, gameState.playing], () => {
-		this.uploadDisabled = this.busy || gameState.playing;
+		this.writeDisabled = this.busy || gameState.playing;
 	});
 
 	const run = async (action: () => Promise<void>, done: string) => {
@@ -72,6 +73,19 @@ export const Settings: Component<
 		} finally {
 			this.busy = false;
 		}
+	};
+
+	const clear = async () => {
+		if (
+			!confirm(
+				"This deletes the downloaded game, your saves, settings, mods and achievements. " +
+					"Download your saves first if you want to keep them.\n\nClear everything?"
+			)
+		)
+			return;
+		await run(clearStorage, "");
+		// only start over if everything was removed
+		if (!this.status) location.reload();
 	};
 
 	const upload = async () => {
@@ -134,7 +148,7 @@ export const Settings: Component<
 					<Button
 						type="normal"
 						icon="left"
-						disabled={use(this.uploadDisabled)}
+						disabled={use(this.writeDisabled)}
 						on:click={upload}
 						title="Replace saves, settings and achievements with a downloaded archive"
 					>
@@ -148,6 +162,19 @@ export const Settings: Component<
 					style="display: none"
 					bind:this={use(this.input)}
 				/>
+			</div>
+			<div class="setting">
+				<span>Game Data</span>
+				<Button
+					type="normal"
+					icon="left"
+					disabled={use(this.writeDisabled)}
+					on:click={clear}
+					title="Delete the game, saves and achievements from this browser"
+				>
+					<Icon icon={iconDelete} />
+					<span>Clear Cache</span>
+				</Button>
 			</div>
 			{$if(use(this.status), <div class="status">{use(this.status)}</div>)}
 		</div>

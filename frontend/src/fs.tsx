@@ -282,3 +282,12 @@ export async function uploadSaves(file: File) {
 			.catch(() => {});
 	}
 }
+
+// Deletes everything this site keeps in browser storage: the game, the patched
+// assemblies, mods, saves and achievements.
+export async function clearStorage() {
+	const names: string[] = [];
+	for await (const [name] of rootFolder) names.push(name);
+	for (const name of names)
+		await rootFolder.removeEntry(name, { recursive: true });
+}
