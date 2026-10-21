@@ -3,16 +3,22 @@ import { store } from "./store";
 import { TextField } from "./ui/TextField";
 import { Button, Icon } from "./ui/Button";
 import { analyticsEnabled, event } from "./analytics";
-import { downloadArchive } from "./fs";
+import { downloadSaves, uploadSaves } from "./fs";
+import { loadAchievements } from "./achievements";
+import { gameState } from "./game";
 
 import iconDownload from "@ktibow/iconset-material-symbols/download";
+import iconUpload from "@ktibow/iconset-material-symbols/upload";
 
 export const Settings: Component<
 	{},
 	{
 		darkMode: boolean;
 		showLogs: boolean;
-		downloading: boolean;
+		busy: boolean;
+		uploadDisabled: boolean;
+		status: string;
+		input: HTMLInputElement;
 	}
 > = function () {
 	this.css = `
@@ -34,22 +40,56 @@ export const Settings: Component<
 			justify-content: space-between;
 			margin-inline: 0.25rem;
 		}
+
+		.buttons {
+			display: flex;
+			gap: 0.5rem;
+		}
+
+		.status {
+			margin-inline: 0.25rem;
+		}
   `;
 
 	this.darkMode = store.theme === "dark";
 
 	this.showLogs = store.logs > 0;
-	this.downloading = false;
+	this.busy = false;
+	this.status = "";
+	// the running game keeps its save data in memory and would overwrite an upload
+	useChange([this.busy, gameState.playing], () => {
+		this.uploadDisabled = this.busy || gameState.playing;
+	});
 
-	const download = async () => {
-		this.downloading = true;
+	const run = async (action: () => Promise<void>, done: string) => {
+		this.busy = true;
+		this.status = "";
 		try {
-			await downloadArchive();
+			await action();
+			this.status = done;
 		} catch (err) {
-			console.error("Failed to create archive:", err);
+			console.error(err);
+			this.status = `Failed: ${err instanceof Error ? err.message : err}`;
 		} finally {
-			this.downloading = false;
+			this.busy = false;
 		}
+	};
+
+	const upload = async () => {
+		const file: File = await new Promise((res) => {
+			this.input.value = "";
+			this.input.onchange = () => res(this.input.files![0]);
+			this.input.click();
+		});
+		if (
+			!file ||
+			!confirm("Replace your current saves, settings and achievements?")
+		)
+			return;
+		await run(async () => {
+			await uploadSaves(file);
+			await loadAchievements();
+		}, "Saves restored.");
 	};
 
 	return (
@@ -80,20 +120,37 @@ export const Settings: Component<
 				<AccentPicker />
 			</div>
 			<div class="setting">
-				<span>Game Files</span>
-				<Button
-					type="normal"
-					icon="left"
-					disabled={use(this.downloading)}
-					on:click={download}
-					title="Download all game files and saves as a .tar.gz"
-				>
-					<Icon icon={iconDownload} />
-					<span>
-						{use(this.downloading, (x) => (x ? "Archiving..." : "Download"))}
-					</span>
-				</Button>
+				<span>Saves</span>
+				<div class="buttons">
+					<Button
+						type="normal"
+						icon="left"
+						disabled={use(this.busy)}
+						on:click={() => run(downloadSaves, "")}
+						title="Download saves, settings and achievements"
+					>
+						<Icon icon={iconDownload} />
+						<span>Download</span>
+					</Button>
+					<Button
+						type="normal"
+						icon="left"
+						disabled={use(this.uploadDisabled)}
+						on:click={upload}
+						title="Replace saves, settings and achievements with a downloaded archive"
+					>
+						<Icon icon={iconUpload} />
+						<span>Upload</span>
+					</Button>
+				</div>
+				<input
+					type="file"
+					accept=".tar,.gz,.tar.gz"
+					style="display: none"
+					bind:this={use(this.input)}
+				/>
 			</div>
+			{$if(use(this.status), <div class="status">{use(this.status)}</div>)}
 			{/* @ts-expect-error fragment */}
 			{analyticsEnabled ? (<>
 				<div>

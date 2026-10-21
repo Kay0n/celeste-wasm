@@ -1,4 +1,5 @@
 import { achievements, glowingAchievements } from "./achievementData";
+import { savesFolder } from "./fs";
 
 export type Achievement = {
 	hidden: boolean;
@@ -8,14 +9,59 @@ export type Achievement = {
 	description: string;
 };
 
+// Kept with the saves so a saves download/upload carries them along.
+const ACHIEVEMENTS_FILE = "achievements.json";
+
 const steamStore: Stateful<{
 	achievements: string[];
-}> = $store(
-	{
-		achievements: [],
-	},
-	{ ident: "achievements", backing: "localstorage", autosave: "auto" }
-);
+}> = $state({
+	achievements: [],
+});
+
+export async function loadAchievements() {
+	try {
+		const file = await savesFolder.getFileHandle(ACHIEVEMENTS_FILE);
+		steamStore.achievements = JSON.parse(await (await file.getFile()).text());
+	} catch {
+		steamStore.achievements = [];
+	}
+}
+
+let saving = Promise.resolve();
+function saveAchievements() {
+	const data = JSON.stringify(steamStore.achievements);
+	saving = saving
+		.then(async () => {
+			const file = await savesFolder.getFileHandle(ACHIEVEMENTS_FILE, {
+				create: true,
+			});
+			const writable = await file.createWritable();
+			await writable.write(data);
+			await writable.close();
+		})
+		.catch((err) => console.error("Failed to save achievements:", err));
+}
+
+await loadAchievements();
+
+// older versions kept achievements in localStorage
+const legacy = localStorage.getItem("achievements");
+if (legacy) {
+	const old = $store(
+		{ achievements: [] as string[] },
+		{
+			ident: "achievements",
+			backing: { read: () => legacy, write: () => {} },
+			autosave: "manual",
+		}
+	);
+	steamStore.achievements = [
+		...new Set([...steamStore.achievements, ...old.achievements]),
+	];
+	saveAchievements();
+	await saving;
+	localStorage.removeItem("achievements");
+}
 
 export function getUnlockedAchievements(): Record<string, Achievement> {
 	return Object.fromEntries(
@@ -36,8 +82,9 @@ export const SteamJS = {
 		return steamStore.achievements.includes(achievement);
 	},
 	SetAchievement(achievement: string) {
-		steamStore.achievements.push(achievement);
-		steamStore.achievements = steamStore.achievements;
+		if (steamStore.achievements.includes(achievement)) return;
+		steamStore.achievements = [...steamStore.achievements, achievement];
+		saveAchievements();
 	},
 
 	GetStat(stat: string) {

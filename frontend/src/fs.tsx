@@ -8,11 +8,14 @@ import ExtractWorker from "./extract.worker?worker";
 
 export const rootFolder = await navigator.storage.getDirectory();
 
-// Archives are built here and downloaded through a blob URL. It can't be
-// deleted until the download has finished reading it, so clean it up on the
-// next page load instead.
-const ARCHIVE_TEMP = ".archive-download.tar";
-await rootFolder.removeEntry(ARCHIVE_TEMP).catch(() => {});
+// game saves, settings (keybinds included), mod settings and achievements
+export const savesFolder = await rootFolder
+	.getDirectoryHandle("Celeste", { create: true })
+	.then((x) => x.getDirectoryHandle("Saves", { create: true }));
+
+// older versions built full archives here for download; clean up any leftover
+await rootFolder.removeEntry(".archive-download.tar").catch(() => {});
+const UPLOAD_TEMP = ".saves-upload";
 
 export async function calculateXXH64(path: string): Promise<string> {
 	let split = path.split("/");
@@ -128,7 +131,6 @@ function createTar(
 
 	async function pack(pathPrefix: string, folder: FileSystemDirectoryHandle) {
 		for await (const [name, entry] of folder) {
-			if (name === ARCHIVE_TEMP) continue;
 			if (callback) callback(entry.kind, name);
 
 			if (entry.kind == "file") {
@@ -230,19 +232,74 @@ export async function recursiveGetDirectory(
 	);
 }
 
-// Downloads the whole of browser storage as a .tar.gz, which can also be served
-// as the game archive that gets extracted on first visit.
-export async function downloadArchive() {
-	const file = await rootFolder.getFileHandle(ARCHIVE_TEMP, { create: true });
-	await createTar(rootFolder, (type, name) =>
-		console.debug(`tarring ${type} ${name}`)
-	)
-		.pipeThrough(new CompressionStream("gzip"))
-		.pipeTo(await file.createWritable());
-
-	const url = URL.createObjectURL(await file.getFile());
+export async function downloadSaves() {
+	const tar = createTar(savesFolder).pipeThrough(new CompressionStream("gzip"));
+	const url = URL.createObjectURL(await new Response(tar).blob());
 	const a = document.createElement("a");
 	a.href = url;
-	a.download = "celeste.tar.gz";
+	a.download = "celeste-saves.tar.gz";
 	a.click();
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function copyInto(
+	from: FileSystemDirectoryHandle,
+	to: FileSystemDirectoryHandle
+) {
+	for await (const [name, entry] of from) {
+		if (entry.kind === "file") {
+			const handle = await to.getFileHandle(name, { create: true });
+			await (await entry.getFile())
+				.stream()
+				.pipeTo(await handle.createWritable());
+		} else {
+			await copyInto(
+				entry,
+				await to.getDirectoryHandle(name, { create: true })
+			);
+		}
+	}
+}
+
+// Replaces the saves folder with the contents of an archive from
+// downloadSaves(). The archive is unpacked somewhere else first so a bad file
+// can't wipe the current saves.
+export async function uploadSaves(file: File) {
+	await rootFolder
+		.removeEntry(UPLOAD_TEMP, { recursive: true })
+		.catch(() => {});
+	const temp = await rootFolder.getDirectoryHandle(UPLOAD_TEMP, {
+		create: true,
+	});
+	try {
+		const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+		let stream = file.stream();
+		if (magic[0] === 0x1f && magic[1] === 0x8b)
+			stream = stream.pipeThrough(new DecompressionStream("gzip"));
+		await extractTar(stream, temp);
+
+		// a tar made by hand may wrap everything in a Saves/ folder
+		let src = temp;
+		const names: string[] = [];
+		for await (const [name] of temp) names.push(name);
+		if (names.length === 1 && names[0] === "Saves")
+			src = await temp.getDirectoryHandle("Saves");
+
+		let valid = false;
+		for await (const [name] of src)
+			if (name.endsWith(".celeste") || name === "achievements.json")
+				valid = true;
+		if (!valid)
+			throw new Error("the archive doesn't contain any Celeste saves");
+
+		const old: string[] = [];
+		for await (const [name] of savesFolder) old.push(name);
+		for (const name of old)
+			await savesFolder.removeEntry(name, { recursive: true });
+		await copyInto(src, savesFolder);
+	} finally {
+		await rootFolder
+			.removeEntry(UPLOAD_TEMP, { recursive: true })
+			.catch(() => {});
+	}
 }
