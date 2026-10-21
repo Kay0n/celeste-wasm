@@ -3,7 +3,6 @@ import { calculateXXH64, recursiveGetDirectory, rootFolder } from "../fs";
 import { SteamJS } from "../achievements";
 import { JsSplash } from "./loading";
 import { epoxyFetch, EpxTcpWs, EpxWs, getWispUrl } from "../epoxy";
-import { event } from "../analytics";
 
 export type Log = { color: string; log: string };
 export const gameState: Stateful<{
@@ -198,9 +197,6 @@ export async function preInit() {
 			// increase jit function limits
 			`--jiterpreter-wasm-bytes-limit=${64 * 1024 * 1024}`,
 			`--jiterpreter-table-size=${32 * 1024}`,
-
-			// print jit stats
-			`--jiterpreter-stats-enabled`,
 		])
 		.withResourceLoader((type, _name, defaultUri, _integrity, behavior) => {
 			// for split wasm
@@ -369,7 +365,6 @@ function monitorMem(): () => void {
 }
 
 export async function play() {
-	event("play-begin");
 	gameState.playing = true;
 	gameState.initting = true;
 

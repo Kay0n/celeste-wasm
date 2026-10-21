@@ -6,7 +6,6 @@ import { gameState, PatchCeleste } from "./game/dotnet";
 import { LogView } from "./game";
 
 import iconManufacturing from "@ktibow/iconset-material-symbols/manufacturing";
-import { event } from "./analytics";
 
 // The game is downloaded from one of these paths on first visit: a tar of
 // Content/ and Celeste.exe, or one downloaded from settings, optionally gzipped.
@@ -155,7 +154,6 @@ const ServerExtract: Component<
 
 		await rootFolder.removeEntry(SERVER_EXTRACT_MARKER);
 
-		event("assets-provided", { option: "server" });
 		this["on:done"](await fileExists("CustomCeleste.dll"));
 	};
 	run().catch((err) => {
@@ -215,7 +213,6 @@ export const Patch: Component<
 		try {
 			await PatchCeleste(this.everest);
 			this.patching = false;
-			event("patched", { everest: this.everest });
 			this["on:done"]();
 		} catch {
 			console.debug("================================================");

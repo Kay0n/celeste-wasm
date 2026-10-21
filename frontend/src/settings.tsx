@@ -2,7 +2,6 @@ import { Switch } from "./ui/Switch";
 import { store } from "./store";
 import { TextField } from "./ui/TextField";
 import { Button, Icon } from "./ui/Button";
-import { analyticsEnabled, event } from "./analytics";
 import { downloadSaves, uploadSaves } from "./fs";
 import { loadAchievements } from "./achievements";
 import { gameState } from "./game";
@@ -151,14 +150,6 @@ export const Settings: Component<
 				/>
 			</div>
 			{$if(use(this.status), <div class="status">{use(this.status)}</div>)}
-			{/* @ts-expect-error fragment */}
-			{analyticsEnabled ? (<>
-				<div>
-					This instance of Webleste has analytics for figuring out how many people are affected by r58playz's random regressions.
-					We send an event on page load, when the game finishes downloading, when you finish patching (with whether you chose to install Everest), when you click the play button, and when you turn this off (but not after).
-				</div>
-				<Switch title="Enable Analytics" bind:on={use(store.analytics)} disabled={false} on:change={() => event("analytics-toggle", { enabled: store.analytics })} />
-			</>) : null}
 		</div>
 	);
 };

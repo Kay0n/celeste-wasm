@@ -1,9 +1,4 @@
-import tar, { Headers as TarHeaders, Pack } from "tar-stream";
-import {
-	toWeb as streamToWeb,
-	/* @ts-expect-error */
-} from "streamx-webstream";
-import XXH64Worker from "./xxh64.worker?worker";
+import xxhash from "xxhash-wasm";
 import ExtractWorker from "./extract.worker?worker";
 
 export const rootFolder = await navigator.storage.getDirectory();
@@ -17,22 +12,21 @@ export const savesFolder = await rootFolder
 await rootFolder.removeEntry(".archive-download.tar").catch(() => {});
 const UPLOAD_TEMP = ".saves-upload";
 
+const { create64 } = await xxhash();
+
 export async function calculateXXH64(path: string): Promise<string> {
-	let split = path.split("/");
-	let dir = await recursiveGetDirectory(rootFolder, split.slice(0, -1));
-	let file = await dir.getFileHandle(split.at(-1)!);
-	let buf = await file.getFile().then((r) => r.arrayBuffer());
+	const split = path.split("/");
+	const dir = await recursiveGetDirectory(rootFolder, split.slice(0, -1));
+	const file = await dir.getFileHandle(split.at(-1)!);
 
-	let worker = new XXH64Worker({ name: `xxh64-${path}` });
-	let promise = new Promise<string>((res, rej) => {
-		worker.onmessage = ({ data }) => res(data.digest);
-		worker.onerror = (x) => rej(new Error(`failed to hash: ${x}`));
-	});
-	worker.postMessage({ buf }, [buf]);
-	let res = await promise;
-	worker.terminate();
-
-	return res;
+	const hash = create64();
+	const reader = (await file.getFile()).stream().getReader();
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		hash.update(value);
+	}
+	return hash.digest().toString(16).toUpperCase().padStart(16, "0");
 }
 export async function calculateCelesteHash(): Promise<string> {
 	return await calculateXXH64("CustomCeleste.dll");
@@ -89,76 +83,59 @@ export async function hasContent(): Promise<boolean> {
 	}
 }
 
-async function createEntry(
-	pack: Pack,
-	header: TarHeaders,
-	file?: ReadableStream<Uint8Array>
-) {
-	let resolve: () => void = null!;
-	let reject: (err: any) => void = null!;
-	const promise = new Promise<void>((res, rej) => {
-		resolve = res;
-		reject = rej;
-	});
+const encoder = new TextEncoder();
 
-	const entry = pack.entry(header, (err) => {
-		if (err) reject(err);
-		else resolve();
-	});
-
-	if (file) {
-		const reader = file.getReader();
-		while (true) {
-			const { value, done } = await reader.read();
-			if (done || !value) break;
-
-			entry.write(value);
-		}
-
-		entry.end();
-	} else {
-		entry.end();
+function tarHeader(path: string, size: number, type: "0" | "5") {
+	let name = path;
+	let prefix = "";
+	if (encoder.encode(name).length > 100) {
+		const split = path.lastIndexOf("/", 155);
+		prefix = path.slice(0, split);
+		name = path.slice(split + 1);
+		if (split < 0 || encoder.encode(name).length > 100)
+			throw new Error(`path too long for tar: ${path}`);
 	}
 
-	await promise;
+	const header = new Uint8Array(512);
+	const put = (str: string, at: number) => header.set(encoder.encode(str), at);
+	const octal = (n: number, len: number) =>
+		n.toString(8).padStart(len - 1, "0") + "\0";
+
+	put(name, 0);
+	put(octal(type === "5" ? 0o755 : 0o644, 8), 100);
+	put(octal(0, 8), 108); // uid
+	put(octal(0, 8), 116); // gid
+	put(octal(size, 12), 124);
+	put(octal(Math.floor(Date.now() / 1000), 12), 136);
+	put(type, 156);
+	put("ustar\0" + "00", 257);
+	put(prefix, 345);
+	// the checksum is summed with its own field as spaces
+	put("        ", 148);
+	const sum = header.reduce((a, b) => a + b, 0);
+	put(octal(sum, 7) + " ", 148);
+	return header;
 }
 
-function createTar(
-	folder: FileSystemDirectoryHandle,
-	callback?: (type: "directory" | "file", name: string) => void
-): ReadableStream {
-	const archive = tar.pack();
-
-	async function pack(pathPrefix: string, folder: FileSystemDirectoryHandle) {
+// The file data isn't read here: a Blob built from Files reads them lazily.
+async function createTar(folder: FileSystemDirectoryHandle): Promise<Blob> {
+	const parts: BlobPart[] = [];
+	async function add(prefix: string, folder: FileSystemDirectoryHandle) {
 		for await (const [name, entry] of folder) {
-			if (callback) callback(entry.kind, name);
-
-			if (entry.kind == "file") {
+			const path = prefix + name;
+			if (entry.kind === "file") {
 				const file = await entry.getFile();
-				const stream = file.stream();
-
-				await createEntry(
-					archive,
-					{
-						name: pathPrefix + name,
-						type: entry.kind,
-						size: file.size,
-					},
-					stream
-				);
+				const padding = new Uint8Array((512 - (file.size % 512)) % 512);
+				parts.push(tarHeader(path, file.size, "0"), file, padding);
 			} else {
-				await createEntry(archive, {
-					name: pathPrefix + name,
-					type: entry.kind,
-				});
-
-				await pack(pathPrefix + name + "/", entry);
+				parts.push(tarHeader(path + "/", 0, "5"));
+				await add(path + "/", entry);
 			}
 		}
 	}
-	pack("", folder).then(() => archive.finalize());
-
-	return streamToWeb(archive);
+	await add("", folder);
+	parts.push(new Uint8Array(1024)); // end of archive
+	return new Blob(parts);
 }
 
 // Bytes of the archive allowed to sit unwritten in the extract worker. Lets
@@ -233,7 +210,9 @@ export async function recursiveGetDirectory(
 }
 
 export async function downloadSaves() {
-	const tar = createTar(savesFolder).pipeThrough(new CompressionStream("gzip"));
+	const tar = (await createTar(savesFolder))
+		.stream()
+		.pipeThrough(new CompressionStream("gzip"));
 	const url = URL.createObjectURL(await new Response(tar).blob());
 	const a = document.createElement("a");
 	a.href = url;

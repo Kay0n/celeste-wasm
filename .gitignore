@@ -12,7 +12,6 @@ obj
 /frontend/public/content
 /frontend/dist
 
-analytics_tag
 .DS_Store
 
 # self-hosting

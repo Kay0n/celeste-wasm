@@ -44,8 +44,6 @@ jobs:
         run: sudo apt-get install mono-devel
 
       - name: Build Csproj
-        env:
-          ANALYTICS_TAG: ${{ vars.ANALYTICS_TAG }}
         run: |
           cd loader && dotnet workload restore && cd ..
           make publish
