@@ -1,4 +1,4 @@
-import { gameState, play, GameView, LogView } from "./game/index";
+import { gameState, play, stop, GameView, LogView } from "./game/index";
 import { Dialog } from "./ui/Dialog";
 import { Button, Icon } from "./ui/Button";
 import { store } from "./store";
@@ -7,6 +7,7 @@ import { Achievements } from "./achievements";
 import { Settings } from "./settings";
 
 import iconPlayArrow from "@ktibow/iconset-material-symbols/play-arrow";
+import iconStop from "@ktibow/iconset-material-symbols/stop";
 import iconFullscreen from "@ktibow/iconset-material-symbols/fullscreen";
 import iconTrophy from "@ktibow/iconset-material-symbols/trophy";
 import iconSettings from "@ktibow/iconset-material-symbols/settings";
@@ -138,18 +139,31 @@ const TopBar: Component<
 				>
 					<Icon icon={iconFullscreen} />
 				</Button>
-				<Button
-					on:click={() => {
-						play();
-					}}
-					icon="left"
-					type="primary"
-					disabled={use(this.allowPlay, (x) => !x)}
-					title={"Start Game"}
-				>
-					<Icon icon={iconPlayArrow} />
-					<span>Play</span>
-				</Button>
+				{$if(
+					use(gameState.playing),
+					<Button
+						on:click={stop}
+						icon="left"
+						type="primary"
+						disabled={false}
+						title={"Stop Game (reloads the page)"}
+					>
+						<Icon icon={iconStop} />
+						<span>Stop</span>
+					</Button>,
+					<Button
+						on:click={() => {
+							play();
+						}}
+						icon="left"
+						type="primary"
+						disabled={use(this.allowPlay, (x) => !x)}
+						title={"Start Game"}
+					>
+						<Icon icon={iconPlayArrow} />
+						<span>Play</span>
+					</Button>
+				)}
 			</div>
 		</div>
 	);

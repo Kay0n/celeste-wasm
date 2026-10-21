@@ -147,7 +147,9 @@ export const GameView: Component<
 			<div class={loader}>
 				<Loader />
 			</div>
-			<div class={notRunning}>Game not running.</div>
+			<div class={notRunning}>
+				{use(gameState.ready, (x) => (x ? "Game not running." : "Loading..."))}
+			</div>
 			<canvas
 				id="canvas"
 				class={canvas}
@@ -158,4 +160,4 @@ export const GameView: Component<
 	);
 };
 
-export { gameState, play } from "./dotnet";
+export { gameState, play, stop } from "./dotnet";

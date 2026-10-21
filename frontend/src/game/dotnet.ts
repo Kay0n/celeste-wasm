@@ -104,8 +104,9 @@ window.addEventListener(
 );
 // Some shortcuts (Ctrl+W/T/N in Firefox, or outside fullscreen in Chrome) are
 // reserved and can't be cancelled, so at least confirm before closing the tab.
+let stopping = false;
 window.addEventListener("beforeunload", (e) => {
-	if (!gameState.playing) return;
+	if (!gameState.playing || stopping) return;
 	e.preventDefault();
 	// older browsers only prompt when returnValue is set
 	e.returnValue = "";
@@ -364,6 +365,13 @@ function monitorMem(): () => void {
 	return () => (stop = true);
 }
 
+// The runtime can't shut the game down and start it again, so stopping is a
+// reload. Progress since the game last saved is lost, as when closing the tab.
+export function stop() {
+	stopping = true;
+	location.reload();
+}
+
 export async function play() {
 	gameState.playing = true;
 	gameState.initting = true;
@@ -391,7 +399,12 @@ export async function play() {
 	stopMonitoring();
 
 	console.debug("Cleanup...");
-	await exports.CelesteLoader.Cleanup();
-	gameState.ready = false;
-	gameState.playing = false;
+	try {
+		await exports.CelesteLoader.Cleanup();
+	} finally {
+		gameState.ready = false;
+		gameState.playing = false;
+		// the game can't be started again without a fresh runtime
+		location.reload();
+	}
 }
