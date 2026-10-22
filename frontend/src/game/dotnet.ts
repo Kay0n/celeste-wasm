@@ -89,6 +89,12 @@ useChange([gameState.playing, gameState.initting], () => {
 	} catch (err) {}
 });
 
+// The game is patched to always run windowed, and SDL exits fullscreen every
+// time it applies that (on startup and when the canvas resizes), so it would
+// undo the fullscreen button. Nothing on the page needs to exit fullscreen
+// itself; the user still can with Esc.
+document.exitFullscreen = () => Promise.resolve();
+
 // Ctrl is a common game binding, so stop Ctrl+key from triggering browser
 // shortcuts (save page, bookmark, ...) while playing. The game still gets the
 // event; only the browser's default action is cancelled.

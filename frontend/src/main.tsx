@@ -134,7 +134,9 @@ const TopBar: Component<
 					}}
 					icon="full"
 					type="normal"
-					disabled={use(gameState.playing, (x) => !x)}
+					// play() sets playing before initting, so this updates when
+					// the game starts loading and again when it's playable
+					disabled={use(gameState.initting, (x) => x || !gameState.playing)}
 					title={"Fullscreen"}
 				>
 					<Icon icon={iconFullscreen} />
