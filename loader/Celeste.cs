@@ -222,6 +222,18 @@ public static partial class CelesteLoader
         return Task.Delay(0);
     }
 
+    // FNA hands its loop to emscripten, so Run() doesn't block until the game
+    // exits; on exit FNA just cancels that loop. Poll for it instead.
+    [JSExport]
+    internal static Task WaitForExit()
+    {
+        return Task.Run(async () =>
+        {
+            while ((bool)RunApplication.GetValue(game))
+                await Task.Delay(250);
+        });
+    }
+
     [JSExport]
     internal static Task WatchMemoryUsage([JSMarshalAs<JSType.Function<JSType.Number, JSType.Boolean>>] Func<double, bool> callback)
     {

@@ -363,6 +363,7 @@ export async function PatchCeleste(installEverest: boolean) {
 }
 
 const SEAMLESSCOUNT = 5;
+const CLEANUP_TIMEOUT = 3000;
 
 function monitorMem(): () => void {
 	let stop = false;
@@ -402,13 +403,26 @@ export async function play() {
 	console.debug(`Init : ${(after - before).toFixed(2)}ms`);
 	gameState.initting = false;
 
-	await exports.CelesteLoader.MainLoop();
+	const mainLoop = exports.CelesteLoader.MainLoop();
+	// MainLoop doesn't return when the game exits (see WaitForExit). Frameworks
+	// built before WaitForExit was added just stay on a black screen.
+	if (exports.CelesteLoader.WaitForExit) {
+		mainLoop.catch((e: any) => console.error("MainLoop failed:", e));
+		await exports.CelesteLoader.WaitForExit();
+	} else {
+		await mainLoop;
+	}
 
 	stopMonitoring();
 
 	console.debug("Cleanup...");
 	try {
-		await exports.CelesteLoader.Cleanup();
+		// Cleanup waits for the game's threads and can hang there. The page is
+		// reloaded anyway, so give it a moment to finish any saves and move on.
+		await Promise.race([
+			exports.CelesteLoader.Cleanup(),
+			new Promise((r) => setTimeout(r, CLEANUP_TIMEOUT)),
+		]);
 	} finally {
 		gameState.ready = false;
 		gameState.playing = false;
