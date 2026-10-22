@@ -96,12 +96,14 @@ useChange([gameState.playing, gameState.initting], () => {
 document.exitFullscreen = () => Promise.resolve();
 
 // Ctrl is a common game binding, so stop Ctrl+key from triggering browser
-// shortcuts (save page, bookmark, ...) while playing. The game still gets the
-// event; only the browser's default action is cancelled.
+// shortcuts (save page, bookmark, ...) while playing. Tab would move focus off
+// the game the same way. The game still gets the event; only the browser's
+// default action is cancelled.
 window.addEventListener(
 	"keydown",
 	(e) => {
-		if (!gameState.playing || !(e.ctrlKey || e.metaKey)) return;
+		if (!gameState.playing || !(e.ctrlKey || e.metaKey || e.key === "Tab"))
+			return;
 		const target = e.target as HTMLElement | null;
 		if (target?.closest("input, textarea, [contenteditable]")) return;
 		e.preventDefault();
