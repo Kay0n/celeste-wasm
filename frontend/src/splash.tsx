@@ -6,6 +6,7 @@ import { gameState, PatchCeleste } from "./game/dotnet";
 import { LogView } from "./game";
 
 import iconManufacturing from "@ktibow/iconset-material-symbols/manufacturing";
+import iconDownload from "@ktibow/iconset-material-symbols/download";
 
 // The game is downloaded from one of these paths on first visit: a tar of
 // Content/ and Celeste.exe, or one downloaded from settings, optionally gzipped.
@@ -259,7 +260,7 @@ export const Splash: Component<
 		start: () => Promise<void>;
 	},
 	{
-		next: "server" | "patch" | "missing";
+		next: "intro" | "server" | "patch" | "missing";
 	}
 > = function () {
 	this.css = `
@@ -348,7 +349,7 @@ export const Splash: Component<
 			this.next = "patch";
 		}
 	} else {
-		this.next = serverArchiveAvailable ? "server" : "missing";
+		this.next = serverArchiveAvailable ? "intro" : "missing";
 	}
 
 	return (
@@ -361,7 +362,21 @@ export const Splash: Component<
 						<Logo />
 					</div>
 					{use(this.next, (x) => {
-						if (x === "server") {
+						if (x === "intro") {
+							return (
+								<div class="step">
+									<Button
+										type="primary"
+										icon="left"
+										disabled={false}
+										on:click={() => (this.next = "server")}
+									>
+										<Icon icon={iconDownload} />
+										Initialize
+									</Button>
+								</div>
+							);
+						} else if (x === "server") {
 							return (
 								<ServerExtract
 									on:done={(patched) => {
