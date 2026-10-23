@@ -19,3 +19,6 @@ obj
 .devenv*
 devenv.lock
 .direnv
+
+# nix build
+/result

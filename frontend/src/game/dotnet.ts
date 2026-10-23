@@ -191,7 +191,10 @@ export async function preInit() {
 	console.debug("initializing dotnet");
 	const runtime = await dotnet
 		.withConfig({
-			pthreadPoolInitialSize: 16,
+			// Firefox only starts a new worker once the main thread yields, so a
+			// thread created after the pool runs out can deadlock against a main
+			// thread that's spinning on a lock. Keep enough workers ready up front.
+			pthreadPoolInitialSize: 32,
 		})
 		.withRuntimeOptions([
 			// jit functions quickly and jit more functions
