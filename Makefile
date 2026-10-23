@@ -39,6 +39,8 @@ build: deps
 	cp -r loader/bin/Release/net10.0/publish/wwwroot/_framework frontend/public/
 	# emscripten sucks
 	sed -i 's/var offscreenCanvases \?= \?{};/var offscreenCanvases={};if(globalThis.window\&\&!window.TRANSFERRED_CANVAS){transferredCanvasNames=[".canvas"];window.TRANSFERRED_CANVAS=true;}/' frontend/public/_framework/dotnet.native.*.js
+	# read OPFS files through sync access handles instead of Blobs (Firefox)
+	sed -i -e '/^var wasmImports = {/,/^};/{/^};/r loader/opfs-sync-read.js' -e '}' frontend/public/_framework/dotnet.native.*.js
 	# dotnet messed up
 	sed -i 's/this.appendULeb(32768)/this.appendULeb(65535)/' frontend/public/_framework/dotnet.runtime.*.js
 	# fmod messed up

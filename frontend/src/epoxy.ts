@@ -13,7 +13,13 @@ export let epoxyVersion =
 	epoxyInfo.version + epoxyInfo.commit + epoxyInfo.release;
 
 let cache: Cache = await window.caches.open("epoxy");
-let initted: boolean = false;
+// Epoxy's wasm-bindgen init only checks whether it's already initialized
+// before its first await, so two concurrent inits both instantiate the module
+// and the second replaces the first. Clients made against the first instance
+// then call into the second with stale pointers, which can spin forever on the
+// main thread and lock up the tab. The game's first requests come in together,
+// so every caller waits on the same init.
+let initting: Promise<void> | undefined;
 
 let currentClient: EpoxyClient;
 let currentWispUrl: string;
@@ -28,22 +34,28 @@ async function instantiate() {
 	}
 	const module = await cache.match(EPOXY_PATH);
 	await epoxyInit({ module_or_path: module });
-	initted = true;
+}
+
+async function init() {
+	if (epoxyVersion === store.epoxyVersion) {
+		await instantiate();
+	} else {
+		await evict();
+		await instantiate();
+		console.log(
+			`evicted epoxy "${store.epoxyVersion}" from cache because epoxy "${epoxyVersion}" is available`
+		);
+		store.epoxyVersion = epoxyVersion;
+	}
 }
 
 async function tryInit() {
-	if (!initted) {
-		if (epoxyVersion === store.epoxyVersion) {
-			await instantiate();
-		} else {
-			await evict();
-			await instantiate();
-			console.log(
-				`evicted epoxy "${store.epoxyVersion}" from cache because epoxy "${epoxyVersion}" is available`
-			);
-			store.epoxyVersion = epoxyVersion;
-		}
-	}
+	initting ??= init().catch((e) => {
+		// let a later request try again
+		initting = undefined;
+		throw e;
+	});
+	await initting;
 
 	if (currentWispUrl !== store.wispServer) {
 		await createEpoxy();
