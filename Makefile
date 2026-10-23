@@ -43,6 +43,14 @@ build: deps
 	sed -i 's/this.appendULeb(32768)/this.appendULeb(65535)/' frontend/public/_framework/dotnet.runtime.*.js
 	# fmod messed up
 	sed -i 's/return runEmAsmFunction(code, sigPtr, argbuf);/return runMainThreadEmAsm(code, sigPtr, argbuf, 1);/' frontend/public/_framework/dotnet.native.*.js
+	# SDL's EM_JS gamepad helpers call navigator.getGamepads(), which workers don't have, so run them on the main thread
+	sed -i -E 's/^function (SDL_GetEmscriptenJoystickVendor|SDL_GetEmscriptenJoystickProduct|SDL_IsEmscriptenJoystickXInput)\(device_index\) \{/&if(ENVIRONMENT_IS_PTHREAD)return proxyToMainThread(proxiedFunctionTable.indexOf(\1),0,1,device_index);/; s/^(var proxiedFunctionTable = \[.*) \];$$/\1, SDL_GetEmscriptenJoystickVendor, SDL_GetEmscriptenJoystickProduct, SDL_IsEmscriptenJoystickXInput ];/' frontend/public/_framework/dotnet.native.*.js
+	# the seds above change files whose names hash their old contents, and _framework
+	# is served as immutable, so rename them to match what they contain now
+	cd frontend/public/_framework && for f in dotnet.native.*.js dotnet.runtime.*.js; do \
+		n=$$(echo $$f | cut -d. -f1-2).$$(sha256sum $$f | cut -c1-10).js; \
+		mv $$f $$n && sed -i "s/\"$$f\"/\"$$n\"/" dotnet.js; \
+	done
 	cd frontend/public/_framework && split -b20M -d -a1 dotnet.native.*.wasm dotnet.native.*.wasm && rm dotnet.native.*.wasm
 
 serve: build
