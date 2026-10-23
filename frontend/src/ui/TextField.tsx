@@ -1,10 +1,13 @@
 export const TextField: Component<
 	{
 		"on:keydown"?: (() => void) | ((e: KeyboardEvent) => void);
+		"on:input"?: (() => void) | ((e: InputEvent) => void);
 		value: string;
 		placeholder?: string;
 		class?: string;
 		type?: string;
+		disabled?: boolean;
+		maxlength?: number;
 	},
 	{}
 > = function () {
@@ -27,6 +30,12 @@ export const TextField: Component<
       border-color: var(--accent);
     }
 
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      border-color: var(--surface1);
+    }
+
     ::placeholder {
       color: var(--surface5);
     }
@@ -39,6 +48,9 @@ export const TextField: Component<
 			placeholder={`${this.placeholder}`}
 			bind:value={use(this.value)}
 			on:keydown={this["on:keydown"] || (() => {})}
+			on:input={this["on:input"] || (() => {})}
+			disabled={use(this.disabled)}
+			maxlength={this.maxlength}
 		/>
 	);
 };

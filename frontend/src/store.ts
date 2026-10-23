@@ -13,6 +13,8 @@ export let store = $store(
 		accentColor: undefined,
 		// connect to CelesteNet (if installed) when the game starts
 		celestenet: false,
+		// CelesteNet guest name, "" until it's been read from the mod's settings
+		celestenetName: "",
 	},
 	{ ident: "options", backing: "localstorage", autosave: "auto" }
 );

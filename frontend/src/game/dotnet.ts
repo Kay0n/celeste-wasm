@@ -379,26 +379,39 @@ function monitorMem(): () => void {
 }
 
 // CelesteNet never connects by itself when the game starts, so the site's
-// setting is applied once the mod has loaded. After that, toggling it in the
-// mod menu is copied back to the site setting. Without CelesteNet installed
-// (or with a framework built before these exports) this does nothing.
+// settings are applied once the mod has loaded. After that, changing them in
+// the mod menu is copied back to the site settings. Without CelesteNet
+// installed (or with a framework built before these exports) this does nothing.
 let celestenetApplied = false;
-// the game applies a toggle on its next frame, so a read right after it can
+// the game applies a change on its next frame, so a read right after it can
 // still see the old value
 let celestenetToggledAt = 0;
+let celestenetRenamedAt = 0;
 function syncCelesteNet(): () => void {
 	const loader = exports.CelesteLoader;
 	if (!loader.SetCelesteNet || !loader.GetCelesteNet) return () => {};
+	const hasName = !!(loader.SetCelesteNetName && loader.GetCelesteNetName);
 
 	const timer = setInterval(async () => {
 		try {
 			if (!celestenetApplied) {
+				// the name first, so connecting uses it
+				if (
+					hasName &&
+					store.celestenetName &&
+					!(await loader.SetCelesteNetName(store.celestenetName))
+				)
+					return;
 				celestenetApplied = await loader.SetCelesteNet(store.celestenet);
 				return;
 			}
 			const wants = await loader.GetCelesteNet();
 			if (wants !== -1 && Date.now() - celestenetToggledAt > 3000)
 				store.celestenet = wants === 1;
+			if (!hasName) return;
+			const name = await loader.GetCelesteNetName();
+			if (name != null && Date.now() - celestenetRenamedAt > 3000)
+				store.celestenetName = name;
 		} catch (e) {
 			console.error("CelesteNet sync failed:", e);
 		}
@@ -406,17 +419,34 @@ function syncCelesteNet(): () => void {
 	return () => clearInterval(timer);
 }
 
+function celestenetReady() {
+	return gameState.playing && celestenetApplied;
+}
+
 // called when the site setting is switched
 export async function setCelesteNet(connect: boolean) {
 	store.celestenet = connect;
 	celestenetToggledAt = Date.now();
 	const loader = exports?.CelesteLoader;
-	if (!gameState.playing || !celestenetApplied || !loader?.SetCelesteNet)
-		return;
+	if (!celestenetReady() || !loader?.SetCelesteNet) return;
 	try {
 		await loader.SetCelesteNet(connect);
 	} catch (e) {
 		console.error("Failed to toggle CelesteNet:", e);
+	}
+}
+
+// called as the site's username is typed; like the mod menu's name option,
+// it's used the next time CelesteNet connects
+export async function setCelesteNetName(name: string) {
+	store.celestenetName = name;
+	celestenetRenamedAt = Date.now();
+	const loader = exports?.CelesteLoader;
+	if (!name || !celestenetReady() || !loader?.SetCelesteNetName) return;
+	try {
+		await loader.SetCelesteNetName(name);
+	} catch (e) {
+		console.error("Failed to set CelesteNet name:", e);
 	}
 }
 

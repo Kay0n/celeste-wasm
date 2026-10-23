@@ -5,7 +5,7 @@ import { Button, Icon } from "./ui/Button";
 import { clearStorage, downloadSaves, savesFolder, uploadSaves } from "./fs";
 import { loadAchievements } from "./achievements";
 import { gameState } from "./game";
-import { setCelesteNet } from "./game/dotnet";
+import { setCelesteNet, setCelesteNetName } from "./game/dotnet";
 
 import iconDownload from "@ktibow/iconset-material-symbols/download";
 import iconUpload from "@ktibow/iconset-material-symbols/upload";
@@ -184,8 +184,32 @@ export const Settings: Component<
 };
 
 const CelesteNet: Component<{}, { server: string }> = function () {
+	this.css = `
+		display: flex;
+		flex-direction: column;
+		gap: 0.8rem;
+
+		/* Settings' own rule for this doesn't reach into child components */
+		.component-switch {
+			margin-inline: 0.25rem;
+		}
+
+		.name {
+			display: flex;
+			flex-direction: row;
+			align-items: center;
+			margin-inline: 0.25rem;
+			gap: 0.5rem;
+		}
+
+		.name input {
+			flex: 1;
+		}
+	`;
+
 	this.server = "CelesteNet";
-	// the server CelesteNet will connect to, from its saved mod settings
+	// the server CelesteNet will connect to and the name it uses, from its
+	// saved mod settings
 	savesFolder
 		.getFileHandle("modsettings-CelesteNet.Client.celeste")
 		.then((file) => file.getFile())
@@ -193,20 +217,53 @@ const CelesteNet: Component<{}, { server: string }> = function () {
 		.then((yaml) => {
 			const server = yaml.match(/^Server:\s*['"]?([^'"\s]+)/m)?.[1];
 			if (server) this.server = server;
+			if (!store.celestenetName) {
+				const name = yaml.match(/^Name:\s*(.*?)\s*$/m)?.[1];
+				if (name) store.celestenetName = unquoteYaml(name);
+			}
 		})
 		.catch(() => {});
 
 	return (
-		<Switch
-			title={use`Connect to ${this.server}`}
-			bind:on={use(store.celestenet)}
-			disabled={false}
-			on:change={(e: Event) =>
-				setCelesteNet((e.target as HTMLInputElement).checked)
-			}
-		/>
+		<div>
+			<Switch
+				title={use`Connect to ${this.server}`}
+				bind:on={use(store.celestenet)}
+				disabled={false}
+				on:change={(e: Event) =>
+					setCelesteNet((e.target as HTMLInputElement).checked)
+				}
+			/>
+			<div class="name">
+				<span>Username:</span>
+				{/* like the mod menu, the name can't change while connected */}
+				<TextField
+					bind:value={use(store.celestenetName)}
+					placeholder="Guest"
+					maxlength={20}
+					disabled={use(store.celestenet)}
+					on:input={(e: InputEvent) =>
+						setCelesteNetName((e.target as HTMLInputElement).value)
+					}
+				/>
+			</div>
+		</div>
 	);
 };
+
+// a YAML scalar as written by Everest's settings serializer
+function unquoteYaml(value: string) {
+	if (value.startsWith("'") && value.endsWith("'"))
+		return value.slice(1, -1).replaceAll("''", "'");
+	if (value.startsWith('"') && value.endsWith('"')) {
+		try {
+			return JSON.parse(value);
+		} catch {
+			return value.slice(1, -1);
+		}
+	}
+	return value;
+}
 
 export const WispServer: Component<{}> = function () {
 	this.css = `
