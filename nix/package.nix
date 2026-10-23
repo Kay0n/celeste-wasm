@@ -35,8 +35,8 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   # as a release asset. To update: rebuild, pack frontend/public/_framework
   # into framework.tar.zst, upload it under a new tag and change url and hash.
   framework = fetchurl {
-    url = "https://github.com/Kay0n/celeste-wasm/releases/download/framework-f77ef07/framework.tar.zst";
-    hash = "sha256-zOWYd/vmR2im/p6cJa7/PLBpmhHUPlysAJMLjyu9VFs=";
+    url = "https://github.com/Kay0n/celeste-wasm/releases/download/framework-65f1c0b/framework.tar.zst";
+    hash = "sha256-/91kVtQsI3EjEzm7xqGFpEdH+1ZiTdIPmHocAADA3zI=";
   };
 
   pnpmDeps = fetchPnpmDeps {
