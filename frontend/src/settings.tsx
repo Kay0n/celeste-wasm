@@ -2,9 +2,10 @@ import { Switch } from "./ui/Switch";
 import { store } from "./store";
 import { TextField } from "./ui/TextField";
 import { Button, Icon } from "./ui/Button";
-import { clearStorage, downloadSaves, uploadSaves } from "./fs";
+import { clearStorage, downloadSaves, savesFolder, uploadSaves } from "./fs";
 import { loadAchievements } from "./achievements";
 import { gameState } from "./game";
+import { setCelesteNet } from "./game/dotnet";
 
 import iconDownload from "@ktibow/iconset-material-symbols/download";
 import iconUpload from "@ktibow/iconset-material-symbols/upload";
@@ -125,6 +126,7 @@ export const Settings: Component<
 					store.logs = (e.target as HTMLInputElement).checked ? 1 : -1;
 				}}
 			/>
+			<CelesteNet />
 			<WispServer />
 			<div>
 				<div style="margin-inline: 0.2rem; user-select: none;">
@@ -178,6 +180,31 @@ export const Settings: Component<
 			</div>
 			{$if(use(this.status), <div class="status">{use(this.status)}</div>)}
 		</div>
+	);
+};
+
+const CelesteNet: Component<{}, { server: string }> = function () {
+	this.server = "CelesteNet";
+	// the server CelesteNet will connect to, from its saved mod settings
+	savesFolder
+		.getFileHandle("modsettings-CelesteNet.Client.celeste")
+		.then((file) => file.getFile())
+		.then((file) => file.text())
+		.then((yaml) => {
+			const server = yaml.match(/^Server:\s*['"]?([^'"\s]+)/m)?.[1];
+			if (server) this.server = server;
+		})
+		.catch(() => {});
+
+	return (
+		<Switch
+			title={use`Connect to ${this.server}`}
+			bind:on={use(store.celestenet)}
+			disabled={false}
+			on:change={(e: Event) =>
+				setCelesteNet((e.target as HTMLInputElement).checked)
+			}
+		/>
 	);
 };
 

@@ -3,6 +3,7 @@ import { calculateXXH64, recursiveGetDirectory, rootFolder } from "../fs";
 import { SteamJS } from "../achievements";
 import { JsSplash } from "./loading";
 import { epoxyFetch, EpxTcpWs, EpxWs, getWispUrl } from "../epoxy";
+import { store } from "../store";
 
 export type Log = { color: string; log: string };
 export const gameState: Stateful<{
@@ -377,6 +378,48 @@ function monitorMem(): () => void {
 	return () => (stop = true);
 }
 
+// CelesteNet never connects by itself when the game starts, so the site's
+// setting is applied once the mod has loaded. After that, toggling it in the
+// mod menu is copied back to the site setting. Without CelesteNet installed
+// (or with a framework built before these exports) this does nothing.
+let celestenetApplied = false;
+// the game applies a toggle on its next frame, so a read right after it can
+// still see the old value
+let celestenetToggledAt = 0;
+function syncCelesteNet(): () => void {
+	const loader = exports.CelesteLoader;
+	if (!loader.SetCelesteNet || !loader.GetCelesteNet) return () => {};
+
+	const timer = setInterval(async () => {
+		try {
+			if (!celestenetApplied) {
+				celestenetApplied = await loader.SetCelesteNet(store.celestenet);
+				return;
+			}
+			const wants = await loader.GetCelesteNet();
+			if (wants !== -1 && Date.now() - celestenetToggledAt > 3000)
+				store.celestenet = wants === 1;
+		} catch (e) {
+			console.error("CelesteNet sync failed:", e);
+		}
+	}, 2000);
+	return () => clearInterval(timer);
+}
+
+// called when the site setting is switched
+export async function setCelesteNet(connect: boolean) {
+	store.celestenet = connect;
+	celestenetToggledAt = Date.now();
+	const loader = exports?.CelesteLoader;
+	if (!gameState.playing || !celestenetApplied || !loader?.SetCelesteNet)
+		return;
+	try {
+		await loader.SetCelesteNet(connect);
+	} catch (e) {
+		console.error("Failed to toggle CelesteNet:", e);
+	}
+}
+
 // The runtime can't shut the game down and start it again, so stopping is a
 // reload. Progress since the game last saved is lost, as when closing the tab.
 export function stop() {
@@ -389,6 +432,7 @@ export async function play() {
 	gameState.initting = true;
 
 	let stopMonitoring = monitorMem();
+	let stopCelesteNet = () => {};
 
 	console.debug("Init...");
 	const before = performance.now();
@@ -405,6 +449,7 @@ export async function play() {
 	const after = performance.now();
 	console.debug(`Init : ${(after - before).toFixed(2)}ms`);
 	gameState.initting = false;
+	stopCelesteNet = syncCelesteNet();
 
 	const mainLoop = exports.CelesteLoader.MainLoop();
 	// MainLoop doesn't return when the game exits (see WaitForExit). Frameworks
@@ -417,6 +462,7 @@ export async function play() {
 	}
 
 	stopMonitoring();
+	stopCelesteNet();
 
 	console.debug("Cleanup...");
 	try {

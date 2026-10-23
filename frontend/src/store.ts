@@ -11,6 +11,8 @@ export let store = $store(
 		wispServer: import.meta.env.VITE_WISP_URL || "wss://anura.pro",
 		epoxyVersion: "",
 		accentColor: undefined,
+		// connect to CelesteNet (if installed) when the game starts
+		celestenet: false,
 	},
 	{ ident: "options", backing: "localstorage", autosave: "auto" }
 );
